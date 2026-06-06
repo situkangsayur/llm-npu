@@ -1,85 +1,112 @@
 #!/usr/bin/env bash
-# npu-top — monitor utilisasi NPU AMD XDNA2 (Ryzen AI) di Linux.
+# npu-top — dashboard CPU / GPU / NPU untuk AMD Ryzen AI (XDNA2) di Linux.
 #
-# CATATAN JUJUR: XDNA2 TIDAK mengekspos counter %-utilisasi silikon di Linux
-# (kolom GOPS/FPS/Latency & Estimated Power di `xrt-smi` = N/A). Skrip ini
-# membaca DELTA "Submissions" (perintah ke array AIE) per detik dari
-# `xrt-smi examine -r aie-partitions`, lalu menampilkannya sebagai:
-#   - submissions/detik  (sinyal aktivitas mentah)
-#   - "load %"           = submissions_per_s / PEAK * 100  (PROXY, di-cap 100%)
-# PEAK = throughput puncak per-stream. Default 40 (terukur utk qwen3.5:2b:
-# decode stabil ~40/s; prefill bisa lebih tinggi sesaat -> tampil 100%).
-# Model lain beda; kalibrasi sendiri: jalankan saat generate panjang, lihat
-# angka submissions/s stabil, lalu set sebagai PEAK.
+# Menampilkan utilisasi + suhu + kondisi tiap unit:
+#   NPU : submissions/detik dari `xrt-smi examine -r aie-partitions` + "load %"
+#         (PROXY rel. puncak throughput; XDNA2 tak ekspos %-silikon/suhu sendiri).
+#   CPU : usage % (/proc/stat), suhu Tctl (k10temp), freq rata-rata.
+#   GPU : busy % (amdgpu gpu_busy_percent), suhu edge, power, VRAM, sclk.
+# NPU 1 die dgn CPU/GPU (APU) -> tak ada sensor suhu NPU terpisah; suhu paket
+# (k10temp) jadi acuan. Semua angka selain "NPU load%" adalah counter NYATA.
 #
-# Pakai:
-#   npu-top                 # interval 1s, peak default 40
-#   npu-top 0.5             # interval 0.5s
-#   npu-top 1 60            # interval 1s, peak 60
-#   NPU_PEAK=60 npu-top     # peak via env
-#
+# Pakai:  npu-top [interval] [peak_npu]      (default 1 detik, peak 40)
 # Ctrl-C untuk berhenti.
 set -euo pipefail
 
 INTERVAL="${1:-1}"
 PEAK="${2:-${NPU_PEAK:-40}}"
 
-if ! command -v xrt-smi >/dev/null 2>&1; then
-  echo "xrt-smi tidak ditemukan (paket xrt-plugin-amdxdna)." >&2
-  exit 1
-fi
+command -v xrt-smi >/dev/null 2>&1 || { echo "xrt-smi tidak ada (xrt-plugin-amdxdna)" >&2; exit 1; }
 
-# Cari node sysfs amdgpu (iGPU) untuk pembanding: gpu_busy_percent = %-utilisasi
-# GPU SEJATI (beda dgn NPU yg tak punya counter ini). Kalau LLM benar di NPU,
-# angka GPU ini tetap rendah saat inferensi.
-GPU_BUSY=""
-for c in /sys/class/drm/card*/device/gpu_busy_percent; do
-  [ -r "$c" ] && { GPU_BUSY="$c"; break; }
+# --- temukan path sysfs by-name (tahan perubahan nomor hwmon antar-boot) ---
+hwmon_by_name() { local n="$1" h; for h in /sys/class/hwmon/hwmon*; do
+  [ "$(cat "$h/name" 2>/dev/null)" = "$n" ] && { echo "$h"; return; }; done; }
+K10="$(hwmon_by_name k10temp)"          # CPU temp
+AMDGPU="$(hwmon_by_name amdgpu)"        # GPU temp/power/freq
+TP="$(hwmon_by_name thinkpad)"          # fan
+GPU_BUSY=""; GPU_DEV=""
+for c in /sys/class/drm/card*/device; do
+  [ -r "$c/gpu_busy_percent" ] && { GPU_BUSY="$c/gpu_busy_percent"; GPU_DEV="$c"; break; }
 done
 
-read_submissions() {
-  xrt-smi examine -r aie-partitions --batch 2>/dev/null \
-    | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { gsub(/[[:space:]]/,"",$4); s+=$4 } END { print s+0 }'
+# --- pembacaan ---
+read_npu_sub() { xrt-smi examine -r aie-partitions --batch 2>/dev/null \
+  | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ {gsub(/[[:space:]]/,"",$4); s+=$4} END{print s+0}'; }
+read_npu_ctx() { xrt-smi examine -r aie-partitions --batch 2>/dev/null \
+  | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ {c++} END{print c+0}'; }
+catn() { cat "$1" 2>/dev/null || echo 0; }   # baca file angka, 0 kalau gagal
+
+# CPU usage dari /proc/stat (butuh 2 sampel -> simpan state global)
+CPU_PREV_TOTAL=0; CPU_PREV_IDLE=0
+cpu_usage() {
+  local l u n s i io ir so st rest tot idle d_tot d_idle
+  read -r l u n s i io ir so st rest < /proc/stat
+  tot=$((u+n+s+i+io+ir+so+st)); idle=$((i+io))
+  d_tot=$((tot-CPU_PREV_TOTAL)); d_idle=$((idle-CPU_PREV_IDLE))
+  CPU_PREV_TOTAL=$tot; CPU_PREV_IDLE=$idle
+  (( d_tot<=0 )) && { echo 0; return; }
+  awk -v t="$d_tot" -v id="$d_idle" 'BEGIN{printf "%.0f", (1-id/t)*100}'
 }
-read_gpu() { [ -n "$GPU_BUSY" ] && cat "$GPU_BUSY" 2>/dev/null || echo "N/A"; }
-read_contexts() {
-  xrt-smi examine -r aie-partitions --batch 2>/dev/null \
-    | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { c++ } END { print c+0 }'
+cpu_freq_ghz() {  # rata-rata scaling_cur_freq (kHz) -> GHz
+  awk '{s+=$1;n++} END{if(n)printf "%.1f", s/n/1e6; else print "?"}' \
+    /sys/devices/system/cpu/cpu*/cpufreq/scaling_cur_freq 2>/dev/null || echo "?"
 }
 
-prev="$(read_submissions)"
+# --- helper tampilan ---
+bar() { # $1=persen -> bar 40 char
+  local p="$1" n; n=$(( p*40/100 )); (( n<0 ))&&n=0; (( n>40 ))&&n=40
+  printf '%s' "$(printf '%*s' "$n" '' | tr ' ' '#')$(printf '%*s' $((40-n)) '')"
+}
+mdeg() { awk -v v="$(catn "$1")" 'BEGIN{printf "%.0f", v/1000}'; }   # m°C -> °C
+
+# Perkiraan level kipas + kebisingan dari RPM (heuristik; ThinkPad ~maks 4500-5000).
+fan_label() { local r="$1"
+  if   (( r<=0 ));   then echo "MATI · senyap";
+  elif (( r<2200 )); then echo "pelan · nyaris tak terdengar";
+  elif (( r<3200 )); then echo "sedang · terdengar samar";
+  elif (( r<4200 )); then echo "kencang · terdengar jelas";
+  else                    echo "MAKSIMAL · berisik"; fi; }
+
+cpu_prev_init() { cpu_usage >/dev/null; }   # buang sampel pertama
+prev_sub="$(read_npu_sub)"; cpu_prev_init
 trap 'printf "\n"; echo "berhenti."; exit 0' INT
-
 printf '\033[2J'
+
 while true; do
   sleep "$INTERVAL"
-  cur="$(read_submissions)"
-  ctx="$(read_contexts)"
-  gpu="$(read_gpu)"
-  delta=$(( cur - prev ))
-  prev="$cur"
-
-  # rate/detik & load% (di-cap 100), pakai awk untuk pecahan & pembulatan.
-  read -r rate pct < <(awk -v d="$delta" -v i="$INTERVAL" -v p="$PEAK" 'BEGIN{
-    r = d / i; if (r < 0) r = 0;
-    pc = (p > 0) ? r / p * 100 : 0; if (pc > 100) pc = 100;
-    printf "%.0f %.0f\n", r, pc;
-  }')
-
-  bar_len=$(( pct / 2 ))            # 0..100% -> 0..50 char
-  (( bar_len < 0 )) && bar_len=0
-  (( bar_len > 50 )) && bar_len=50
-  bar="$(printf '%*s' "$bar_len" '' | tr ' ' '#')"
-
-  if (( delta > 0 )); then state="● BUSY"; else state="○ idle"; fi
+  # NPU
+  cur_sub="$(read_npu_sub)"; ctx="$(read_npu_ctx)"
+  d_sub=$(( cur_sub - prev_sub )); prev_sub="$cur_sub"
+  read -r nrate npct < <(awk -v d="$d_sub" -v i="$INTERVAL" -v p="$PEAK" 'BEGIN{
+    r=d/i; if(r<0)r=0; pc=(p>0)?r/p*100:0; if(pc>100)pc=100; printf "%.0f %.0f\n", r, pc}')
+  if (( d_sub>0 )); then nstate="● BUSY"; else nstate="○ idle"; fi
+  # CPU
+  cuse="$(cpu_usage)"; ctemp="$([ -n "$K10" ] && mdeg "$K10/temp1_input" || echo '?')"; cghz="$(cpu_freq_ghz)"
+  # GPU
+  gbusy="$([ -n "$GPU_BUSY" ] && catn "$GPU_BUSY" || echo 0)"
+  gtemp="$([ -n "$AMDGPU" ] && mdeg "$AMDGPU/temp1_input" || echo '?')"
+  gpow="$([ -n "$AMDGPU" ] && awk -v v="$(catn "$AMDGPU/power1_average")" 'BEGIN{printf "%.0f", v/1e6}' || echo '?')"
+  gsclk="$([ -n "$AMDGPU" ] && awk -v v="$(catn "$AMDGPU/freq1_input")" 'BEGIN{printf "%.0f", v/1e6}' || echo '?')"
+  vu="$([ -n "$GPU_DEV" ] && catn "$GPU_DEV/mem_info_vram_used" || echo 0)"
+  vt="$([ -n "$GPU_DEV" ] && catn "$GPU_DEV/mem_info_vram_total" || echo 1)"
+  vram="$(awk -v u="$vu" -v t="$vt" 'BEGIN{printf "%.1f/%.1f GB", u/1073741824, t/1073741824}')"
+  f1="$([ -n "$TP" ] && catn "$TP/fan1_input" || echo 0)"
+  f2="$([ -n "$TP" ] && catn "$TP/fan2_input" || echo 0)"
+  fan=$(( f1>f2 ? f1 : f2 ))     # ambil yang lebih kencang
+  flab="$(fan_label "$fan")"
 
   printf '\033[H\033[2K'
-  printf 'NPU XDNA2 (RyzenAI)   peak=%s sub/s   —  Ctrl-C keluar\n\n' "$PEAK"
-  printf '  status      : %s\n' "$state"
-  printf '  load        : %3s%%   (proxy = rel. puncak throughput)\n' "$pct"
-  printf '  submissions : %s/s   (total %s)\n' "$rate" "$cur"
-  printf '  hw contexts : %s aktif\n' "$ctx"
-  printf '  [%-50s] %s%%\n' "$bar" "$pct"
-  printf '\n  GPU (amdgpu): %s%%   <- pembanding; harus tetap RENDAH (LLM di NPU)\n' "$gpu"
+  printf '  AI System Monitor — CPU / GPU / NPU        (Ctrl-C keluar)\n'
+  printf '  ─────────────────────────────────────────────────────────\n'
+  printf '  NPU XDNA2  %-7s load %3s%%   %3s sub/s   ctx %s\n' "$nstate" "$npct" "$nrate" "$ctx"
+  printf '    [%s] %s%%\n' "$(bar "$npct")" "$npct"
+  printf '  CPU Ryzen  usage %3s%%   %sC   %s GHz\n' "$cuse" "${ctemp}°" "$cghz"
+  printf '    [%s] %s%%\n' "$(bar "$cuse")" "$cuse"
+  printf '  GPU 890M   busy  %3s%%   %sC   %sW   sclk %sMHz   VRAM %s\n' "$gbusy" "${gtemp}°" "$gpow" "$gsclk" "$vram"
+  printf '    [%s] %s%%\n' "$(bar "$gbusy")" "$gbusy"
+  printf '  ─────────────────────────────────────────────────────────\n'
+  printf '  suhu : CPU(die) %sC   GPU %sC\n' "${ctemp}°" "${gtemp}°"
+  printf '  kipas: %s RPM  →  %s   (fan1 %s / fan2 %s)\n' "$fan" "$flab" "$f1" "$f2"
+  printf '  catatan: NPU tanpa sensor suhu sendiri (1 die dgn CPU); load%% = proxy\n'
   printf '\033[J'
 done

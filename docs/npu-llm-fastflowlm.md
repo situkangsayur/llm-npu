@@ -101,16 +101,23 @@ xrt-smi examine -r aie-partitions    # HW context + counter Submissions (naik = 
 ```
 
 Belum ada gauge %-utilisasi seperti nvtop. Repo ini menyediakan `scripts/npu-top`
-(terpasang ke `~/.local/bin/npu-top`) yang menghitung **delta Submissions/detik**:
+(terpasang ke `~/.local/bin/npu-top`) — **dashboard CPU / GPU / NPU**:
 
 ```bash
 npu-top        # interval 1 detik
 npu-top 0.5    # lebih responsif
 ```
 
-Saat chat di Open WebUI, status `● BUSY` dengan submissions/detik bergerak.
-Setiap respons API FLM juga memuat `prefill_speed_tps` & `decoding_speed_tps`
-sebagai bukti eksekusi di NPU.
+Menampilkan, per detik:
+- **NPU**: `● BUSY/○ idle`, `load %` (proxy delta Submissions/detik), submissions/s, ctx
+- **CPU**: usage % (/proc/stat), suhu Tctl (k10temp), freq rata-rata
+- **GPU** 890M: busy % (`gpu_busy_percent`), suhu edge, power, sclk, VRAM
+- **Suhu & kipas**: CPU/GPU °C + RPM kipas dengan perkiraan kebisingan
+  (heuristik: `<2200` pelan, `2200–3200` sedang, `3200–4200` kencang, `>4200` maksimal)
+
+Catatan: NPU tak punya sensor suhu sendiri (1 die dgn CPU → pakai suhu paket).
+Semua angka NYATA dari sysfs kecuali "NPU load %" yang proxy. Setiap respons API
+FLM juga memuat `decoding_speed_tps` sebagai bukti eksekusi di NPU.
 
 ## Uji cepat API
 
