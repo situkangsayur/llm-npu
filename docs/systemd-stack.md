@@ -48,6 +48,11 @@ journalctl -u open-webui.service -f                # log compose up/down
 
 ## Catatan & troubleshooting
 
+- **Open WebUI: "model tidak ditemukan".** FLM default bind ke `127.0.0.1`,
+  jadi container tidak bisa menjangkaunya lewat `host.docker.internal`. `flm.service`
+  sudah memakai `--host 0.0.0.0` untuk ini. Kalau jalan `flm serve` manual untuk
+  dipakai Open WebUI, tambahkan juga `--host 0.0.0.0`. Verifikasi:
+  `ss -ltn | grep 52625` harus `0.0.0.0:52625` (bukan `127.0.0.1:52625`).
 - **Port 52625 sudah dipakai.** Pastikan tidak ada `flm serve` manual yang masih
   jalan sebelum `systemctl start` (mis. dari terminal lain). Cek:
   `ss -ltnp 'sport = :52625'`.
