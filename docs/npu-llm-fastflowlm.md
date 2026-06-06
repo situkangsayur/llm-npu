@@ -88,6 +88,28 @@ docker run -d -p 3000:8080 \
 
 Lalu buka http://localhost:3000
 
+## Memantau NPU (apakah benar dipakai?)
+
+XDNA2 **tidak muncul** di monitor biasa (`btop`/`nvtop`/`radeontop` hanya CPU/GPU).
+Tool resmi = `xrt-smi`:
+
+```bash
+xrt-smi examine                      # info device + firmware NPU
+xrt-smi examine -r aie-partitions    # HW context + counter Submissions (naik = NPU kerja)
+```
+
+Belum ada gauge %-utilisasi seperti nvtop. Repo ini menyediakan `scripts/npu-top`
+(terpasang ke `~/.local/bin/npu-top`) yang menghitung **delta Submissions/detik**:
+
+```bash
+npu-top        # interval 1 detik
+npu-top 0.5    # lebih responsif
+```
+
+Saat chat di Open WebUI, status `● BUSY` dengan submissions/detik bergerak.
+Setiap respons API FLM juga memuat `prefill_speed_tps` & `decoding_speed_tps`
+sebagai bukti eksekusi di NPU.
+
 ## Uji cepat API
 
 ```bash

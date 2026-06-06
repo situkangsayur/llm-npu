@@ -59,6 +59,16 @@ docker compose up -d          # Open WebUI
   Catatan: unit `flm.service` sudah set `LimitMEMLOCK=infinity` sendiri.
 - Docker + plugin `docker compose` aktif.
 
+## Memantau NPU
+
+XDNA2 tak terbaca monitor biasa (CPU/GPU saja). Pakai `scripts/npu-top`
+(submissions/detik = aktivitas NPU) atau `xrt-smi examine -r aie-partitions`:
+
+```bash
+ln -sf "$PWD/scripts/npu-top" ~/.local/bin/npu-top   # sekali pasang
+npu-top                                               # monitor live
+```
+
 ## Dokumentasi
 
 - [Menjalankan LLM di NPU (FastFlowLM)](docs/npu-llm-fastflowlm.md) — install,

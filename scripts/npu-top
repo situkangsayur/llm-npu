@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# npu-top — monitor sederhana utilisasi NPU AMD XDNA2 (Ryzen AI) di Linux.
+#
+# XDNA belum punya gauge %-utilisasi seperti nvtop. Skrip ini membaca
+# `xrt-smi examine -r aie-partitions` lalu menghitung DELTA "Submissions"
+# (perintah yang dikirim ke array AIE) per detik — naik = NPU sedang bekerja.
+#
+# Pakai:  npu-top [interval_detik]   (default 1)
+#         npu-top 0.5
+#
+# Ctrl-C untuk berhenti.
+set -euo pipefail
+
+INTERVAL="${1:-1}"
+
+if ! command -v xrt-smi >/dev/null 2>&1; then
+  echo "xrt-smi tidak ditemukan (paket xrt-plugin-amdxdna)." >&2
+  exit 1
+fi
+
+# Jumlahkan kolom Submissions di semua HW context.
+# Baris data: |<PID>|<CtxID>|<Submissions>|<Migrations>|<Err>|<Priority>|
+# -F'|' => $2=PID, $3=CtxID, $4=Submissions. Ambil baris yang $2-nya angka (PID).
+read_submissions() {
+  xrt-smi examine -r aie-partitions --batch 2>/dev/null \
+    | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { gsub(/[[:space:]]/,"",$4); s+=$4 } END { print s+0 }'
+}
+
+# Hitung jumlah HW context aktif (indikasi model termuat di NPU).
+read_contexts() {
+  xrt-smi examine -r aie-partitions --batch 2>/dev/null \
+    | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { c++ } END { print c+0 }'
+}
+
+prev="$(read_submissions)"
+trap 'echo; echo "berhenti."; exit 0' INT
+
+printf '\033[2J'  # clear sekali di awal
+while true; do
+  sleep "$INTERVAL"
+  cur="$(read_submissions)"
+  ctx="$(read_contexts)"
+  delta=$(( cur - prev ))
+  # rate per detik (delta / interval), pakai awk untuk interval pecahan.
+  rate="$(awk -v d="$delta" -v i="$INTERVAL" 'BEGIN{ printf "%.0f", d/i }')"
+  prev="$cur"
+
+  # bar sederhana (skala log-ish, cap 50 char).
+  bar_len=$(( rate > 50 ? 50 : rate ))
+  (( bar_len < 0 )) && bar_len=0
+  bar="$(printf '%*s' "$bar_len" '' | tr ' ' '#')"
+
+  if (( delta > 0 )); then state="● BUSY "; else state="○ idle "; fi
+
+  printf '\033[H\033[2K'  # ke pojok kiri-atas, bersihkan baris
+  printf 'NPU XDNA2 (RyzenAI)  —  Ctrl-C keluar\n\n'
+  printf '  status      : %s\n' "$state"
+  printf '  submissions : %s/s   (total %s)\n' "$rate" "$cur"
+  printf '  hw contexts : %s aktif\n' "$ctx"
+  printf '  [%-50s]\n' "$bar"
+  printf '\033[J'  # bersihkan sisa layar di bawah
+done
