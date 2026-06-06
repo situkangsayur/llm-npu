@@ -53,6 +53,11 @@ journalctl -u open-webui.service -f                # log compose up/down
   sudah memakai `--host 0.0.0.0` untuk ini. Kalau jalan `flm serve` manual untuk
   dipakai Open WebUI, tambahkan juga `--host 0.0.0.0`. Verifikasi:
   `ss -ltn | grep 52625` harus `0.0.0.0:52625` (bukan `127.0.0.1:52625`).
+- **Open WebUI "no models found" padahal FLM `0.0.0.0`.** Firewall `ufw` (default
+  deny incoming) men-DROP akses container -> port host. Gejala khas: uji dari
+  dalam container `time out` (bukan `connection refused`). `install.sh` sudah
+  menambah aturan `ufw allow from 172.16.0.0/12 to any port 52625` bila ufw aktif.
+  Manual: `sudo ufw allow from 172.16.0.0/12 to any port 52625 proto tcp`.
 - **Port 52625 sudah dipakai.** Pastikan tidak ada `flm serve` manual yang masih
   jalan sebelum `systemctl start` (mis. dari terminal lain). Cek:
   `ss -ltnp 'sport = :52625'`.

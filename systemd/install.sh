@@ -21,6 +21,15 @@ for unit in flm.service open-webui.service flm-stack.target; do
 done
 
 systemctl daemon-reload
+
+# Firewall: container Open WebUI menghubungi FLM lewat gateway docker (172.x).
+# Kalau ufw aktif (default deny incoming), akses itu di-DROP -> Open WebUI
+# "no models found". Izinkan subnet docker ke port FLM 52625.
+if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q "Status: active"; then
+  ufw allow from 172.16.0.0/12 to any port 52625 proto tcp >/dev/null
+  echo "  -> ufw: izinkan 172.16.0.0/12 -> :52625"
+fi
+
 echo
 echo "Unit ter-install (TIDAK di-enable -> tidak auto-start saat boot)."
 echo

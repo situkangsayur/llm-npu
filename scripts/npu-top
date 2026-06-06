@@ -1,62 +1,74 @@
 #!/usr/bin/env bash
-# npu-top — monitor sederhana utilisasi NPU AMD XDNA2 (Ryzen AI) di Linux.
+# npu-top — monitor utilisasi NPU AMD XDNA2 (Ryzen AI) di Linux.
 #
-# XDNA belum punya gauge %-utilisasi seperti nvtop. Skrip ini membaca
-# `xrt-smi examine -r aie-partitions` lalu menghitung DELTA "Submissions"
-# (perintah yang dikirim ke array AIE) per detik — naik = NPU sedang bekerja.
+# CATATAN JUJUR: XDNA2 TIDAK mengekspos counter %-utilisasi silikon di Linux
+# (kolom GOPS/FPS/Latency & Estimated Power di `xrt-smi` = N/A). Skrip ini
+# membaca DELTA "Submissions" (perintah ke array AIE) per detik dari
+# `xrt-smi examine -r aie-partitions`, lalu menampilkannya sebagai:
+#   - submissions/detik  (sinyal aktivitas mentah)
+#   - "load %"           = submissions_per_s / PEAK * 100  (PROXY, di-cap 100%)
+# PEAK = throughput puncak per-stream. Default 40 (terukur utk qwen3.5:2b:
+# decode stabil ~40/s; prefill bisa lebih tinggi sesaat -> tampil 100%).
+# Model lain beda; kalibrasi sendiri: jalankan saat generate panjang, lihat
+# angka submissions/s stabil, lalu set sebagai PEAK.
 #
-# Pakai:  npu-top [interval_detik]   (default 1)
-#         npu-top 0.5
+# Pakai:
+#   npu-top                 # interval 1s, peak default 40
+#   npu-top 0.5             # interval 0.5s
+#   npu-top 1 60            # interval 1s, peak 60
+#   NPU_PEAK=60 npu-top     # peak via env
 #
 # Ctrl-C untuk berhenti.
 set -euo pipefail
 
 INTERVAL="${1:-1}"
+PEAK="${2:-${NPU_PEAK:-40}}"
 
 if ! command -v xrt-smi >/dev/null 2>&1; then
   echo "xrt-smi tidak ditemukan (paket xrt-plugin-amdxdna)." >&2
   exit 1
 fi
 
-# Jumlahkan kolom Submissions di semua HW context.
-# Baris data: |<PID>|<CtxID>|<Submissions>|<Migrations>|<Err>|<Priority>|
-# -F'|' => $2=PID, $3=CtxID, $4=Submissions. Ambil baris yang $2-nya angka (PID).
 read_submissions() {
   xrt-smi examine -r aie-partitions --batch 2>/dev/null \
     | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { gsub(/[[:space:]]/,"",$4); s+=$4 } END { print s+0 }'
 }
-
-# Hitung jumlah HW context aktif (indikasi model termuat di NPU).
 read_contexts() {
   xrt-smi examine -r aie-partitions --batch 2>/dev/null \
     | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { c++ } END { print c+0 }'
 }
 
 prev="$(read_submissions)"
-trap 'echo; echo "berhenti."; exit 0' INT
+trap 'printf "\n"; echo "berhenti."; exit 0' INT
 
-printf '\033[2J'  # clear sekali di awal
+printf '\033[2J'
 while true; do
   sleep "$INTERVAL"
   cur="$(read_submissions)"
   ctx="$(read_contexts)"
   delta=$(( cur - prev ))
-  # rate per detik (delta / interval), pakai awk untuk interval pecahan.
-  rate="$(awk -v d="$delta" -v i="$INTERVAL" 'BEGIN{ printf "%.0f", d/i }')"
   prev="$cur"
 
-  # bar sederhana (skala log-ish, cap 50 char).
-  bar_len=$(( rate > 50 ? 50 : rate ))
+  # rate/detik & load% (di-cap 100), pakai awk untuk pecahan & pembulatan.
+  read -r rate pct < <(awk -v d="$delta" -v i="$INTERVAL" -v p="$PEAK" 'BEGIN{
+    r = d / i; if (r < 0) r = 0;
+    pc = (p > 0) ? r / p * 100 : 0; if (pc > 100) pc = 100;
+    printf "%.0f %.0f\n", r, pc;
+  }')
+
+  bar_len=$(( pct / 2 ))            # 0..100% -> 0..50 char
   (( bar_len < 0 )) && bar_len=0
+  (( bar_len > 50 )) && bar_len=50
   bar="$(printf '%*s' "$bar_len" '' | tr ' ' '#')"
 
-  if (( delta > 0 )); then state="● BUSY "; else state="○ idle "; fi
+  if (( delta > 0 )); then state="● BUSY"; else state="○ idle"; fi
 
-  printf '\033[H\033[2K'  # ke pojok kiri-atas, bersihkan baris
-  printf 'NPU XDNA2 (RyzenAI)  —  Ctrl-C keluar\n\n'
+  printf '\033[H\033[2K'
+  printf 'NPU XDNA2 (RyzenAI)   peak=%s sub/s   —  Ctrl-C keluar\n\n' "$PEAK"
   printf '  status      : %s\n' "$state"
+  printf '  load        : %3s%%   (proxy = rel. puncak throughput)\n' "$pct"
   printf '  submissions : %s/s   (total %s)\n' "$rate" "$cur"
   printf '  hw contexts : %s aktif\n' "$ctx"
-  printf '  [%-50s]\n' "$bar"
-  printf '\033[J'  # bersihkan sisa layar di bawah
+  printf '  [%-50s] %s%%\n' "$bar" "$pct"
+  printf '\033[J'
 done
