@@ -1,0 +1,22 @@
+[Unit]
+Description=FastFlowLM (FLM) — NPU LLM API server (qwen3.5:2b)
+Documentation=https://github.com/FastFlowLM/FastFlowLM
+After=network-online.target
+Wants=network-online.target
+# Ikut berhenti saat flm-stack.target di-stop.
+PartOf=flm-stack.target
+
+[Service]
+Type=simple
+User=hendri
+Group=hendri
+Environment=HOME=/home/hendri
+# FLM butuh memlock unlimited; service-level limit -> tidak bergantung re-login.
+LimitMEMLOCK=infinity
+# Port 52625 adalah default bawaan FLM (lihat `flm port`).
+ExecStart=/usr/bin/flm serve qwen3.5:2b
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

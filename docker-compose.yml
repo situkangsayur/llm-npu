@@ -1,0 +1,51 @@
+# Docker Compose untuk UI/eksperimen LLM di atas FastFlowLM (FLM).
+#
+# CATATAN ARSITEKTUR:
+#   FLM (runtime NPU) TIDAK dijalankan di container — ia butuh akses langsung
+#   ke /dev/accel/accel0 (NPU XDNA2) di host. Jadi FLM tetap jalan di host
+#   (`flm serve qwen3.5:2b` -> http://localhost:52625), dan container di sini
+#   hanya UI/tools yang menunjuk ke API FLM lewat host.docker.internal.
+#
+# PRASYARAT:
+#   1. FLM serve sudah jalan di host pada :52625
+#   2. Docker daemon aktif (butuh reboot dulu jika kernel baru di-update)
+#
+# PAKAI:
+#   docker compose up -d            # start semua service
+#   docker compose down             # stop
+#   docker compose logs -f open-webui
+
+services:
+  # GUI chat (seperti ChatGPT) -> http://localhost:3000
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: open-webui
+    restart: unless-stopped
+    ports:
+      - "3000:8080"
+    environment:
+      # Arahkan ke API FLM di host (OpenAI-compatible)
+      OPENAI_API_BASE_URL: "http://host.docker.internal:52625/v1"
+      OPENAI_API_KEY: "dummy"          # FLM tidak memeriksa key
+      WEBUI_AUTH: "true"               # set "false" untuk skip login (single-user)
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - open-webui:/app/backend/data
+
+  # CONTOH service tambahan untuk eksperimen (mati secara default).
+  # Hapus komentar bila perlu, mis. proxy / playground / notebook.
+  #
+  # jupyter:
+  #   image: jupyter/scipy-notebook:latest
+  #   container_name: llm-jupyter
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8888:8888"
+  #   extra_hosts:
+  #     - "host.docker.internal:host-gateway"
+  #   volumes:
+  #     - ./notebooks:/home/jovyan/work
+
+volumes:
+  open-webui:

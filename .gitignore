@@ -1,0 +1,5 @@
+# Claude Code — local harness settings (personal, jangan di-share)
+.claude/settings.local.json
+
+# Log / runtime
+*.log

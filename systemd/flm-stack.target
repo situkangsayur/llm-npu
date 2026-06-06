@@ -1,0 +1,9 @@
+[Unit]
+Description=FLM LLM stack (FLM NPU server + Open WebUI)
+# Start target -> tarik kedua service. Stop target -> kedua service ikut stop
+# (lihat PartOf= di open-webui.service & flm berhenti via dependency).
+Wants=flm.service open-webui.service
+After=flm.service open-webui.service
+
+[Install]
+WantedBy=multi-user.target
