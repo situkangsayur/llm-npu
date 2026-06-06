@@ -23,7 +23,7 @@ NPU, dengan **Open WebUI** sebagai GUI chat.
 
 | Layanan      | Di mana        | Port    | Catatan                                  |
 |--------------|----------------|---------|------------------------------------------|
-| FLM serve    | host (native)  | `52625` | API OpenAI-compatible, model `qwen3.5:2b`|
+| FLM serve    | host (native)  | `52625` | API OpenAI-compatible, default `gemma4-it:e4b` (hot-swap ke model lain) |
 | Open WebUI   | Docker         | `3000`  | GUI chat -> API FLM                       |
 
 ## Cara pakai

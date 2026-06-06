@@ -9,7 +9,7 @@ Tersimpan di `systemd/` (repo) dan di-install ke `/etc/systemd/system/`:
 
 | Unit                 | Tipe      | Fungsi                                                    |
 |----------------------|-----------|-----------------------------------------------------------|
-| `flm.service`        | simple    | `flm serve qwen3.5:2b` sebagai user `hendri`, `LimitMEMLOCK=infinity` |
+| `flm.service`        | simple    | `flm serve gemma4-it:e4b --host 0.0.0.0` sebagai user `hendri`, `LimitMEMLOCK=infinity` (model lain via hot-swap) |
 | `open-webui.service` | oneshot   | `docker compose up -d` / `down` di folder repo            |
 | `flm-stack.target`   | target    | Pembungkus: start/stop kedua service sekaligus            |
 

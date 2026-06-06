@@ -6,7 +6,9 @@ bisa memakai NPU (hanya CPU/GPU).
 
 - Driver: `amdxdna`, kernel 7.0+
 - API: OpenAI-compatible di port **52625**
-- Model aktif: `qwen3.5:2b` (tersimpan di `~/.config/flm/models/Qwen3.5-2B-NPU2/`)
+- Model default: `gemma4-it:e4b` (multimodal teks/vision/audio, ~8.5 GB).
+  Model lain (mis. `qwen3.5:2b`) tetap bisa dipakai lewat hot-swap — FLM
+  otomatis swap sesuai field `model` di request (muat pertama ~10s).
 
 ## Instalasi (sekali saja)
 
