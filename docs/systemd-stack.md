@@ -9,9 +9,16 @@ Tersimpan di `systemd/` (repo) dan di-install ke `/etc/systemd/system/`:
 
 | Unit                 | Tipe      | Fungsi                                                    |
 |----------------------|-----------|-----------------------------------------------------------|
-| `flm.service`        | simple    | `flm serve gemma4-it:e4b --host 0.0.0.0` sebagai user `hendri`, `LimitMEMLOCK=infinity` (model lain via hot-swap) |
+| `flm.service`        | simple    | `flm serve gemma4-it:e4b --host 127.0.0.1 --port 52624` (di belakang proxy), `LimitMEMLOCK=infinity` |
+| `flm-filter.service` | simple    | Proxy allowlist `scripts/flm-model-filter.py` di `:52625` -> FLM `:52624`; blokir model di luar allowlist (cegah auto-download) |
 | `open-webui.service` | oneshot   | `docker compose up -d` / `down` di folder repo            |
-| `flm-stack.target`   | target    | Pembungkus: start/stop kedua service sekaligus            |
+| `flm-stack.target`   | target    | Pembungkus: start/stop semua service sekaligus            |
+
+**Kenapa ada proxy filter?** `flm serve` AUTO-DOWNLOAD model apa pun yang diminta
+(mis. salah pilih `deepseek` di Open WebUI -> tarik 5GB), dan FLM tak punya opsi
+mematikannya. `flm-filter.service` duduk di port lama FLM (`:52625`) dan hanya
+meneruskan model di `FLM_ALLOWED_MODELS` (`gemma4-it:e4b,qwen3.5:2b`); model lain
+dibalas `403` tanpa diteruskan. Ubah daftar izin di `Environment=` pada unit itu.
 
 Hubungan:
 

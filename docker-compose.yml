@@ -33,7 +33,7 @@ services:
       # CATATAN: ini PersistentConfig -> hanya berlaku saat init DB PERTAMA. Untuk
       # instance yang sudah jalan, atur lewat UI (Admin > Settings > Connections >
       # Model IDs). Untuk reset ke env: hapus volume open-webui lalu up lagi.
-      OPENAI_API_CONFIGS: '{"0":{"enable":true,"model_ids":["gemma4-it:e4b","qwen3.5:2b"]}}'
+      OPENAI_API_CONFIGS: '{"0":{"enable":true,"model_ids":["qwen3.5:2b"]}}'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:

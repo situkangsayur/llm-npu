@@ -1,5 +1,5 @@
 [Unit]
-Description=FastFlowLM (FLM) — NPU LLM API server (gemma4-it:e4b)
+Description=FastFlowLM (FLM) — NPU LLM API server (qwen3.5:2b)
 Documentation=https://github.com/FastFlowLM/FastFlowLM
 After=network-online.target
 Wants=network-online.target
@@ -13,14 +13,12 @@ Group=hendri
 Environment=HOME=/home/hendri
 # FLM butuh memlock unlimited; service-level limit -> tidak bergantung re-login.
 LimitMEMLOCK=infinity
-# Port 52625 = default bawaan FLM (lihat `flm port`).
-# --host 0.0.0.0 WAJIB: default FLM bind ke 127.0.0.1 saja, sehingga container
-# Open WebUI (datang lewat IP gateway docker, mis. 172.17.0.1) tidak bisa
-# menghubunginya -> "model tidak ditemukan". Bind ke 0.0.0.0 agar terjangkau.
-# Model startup = default yang termuat saat start. Model lain (mis. qwen3.5:2b)
-# tetap bisa dipakai lewat hot-swap: FLM otomatis swap sesuai field "model" di
-# request (muat pertama ~10s, lalu unload model sebelumnya).
-ExecStart=/usr/bin/flm serve gemma4-it:e4b --host 0.0.0.0
+# FLM jalan di localhost:52624, DI BELAKANG flm-filter.service (proxy allowlist
+# di :52625). Proxy mencegah auto-download model yang tak diizinkan. FLM sendiri
+# cukup bind 127.0.0.1 (hanya proxy yang menghubunginya) -> lebih aman.
+# Model startup = default yang termuat. (Gemma 4 sengaja "dimatikan" — tak ada
+# di allowlist proxy, jadi tak bisa dipilih; modelnya tetap ada di disk.)
+ExecStart=/usr/bin/flm serve qwen3.5:2b --host 127.0.0.1 --port 52624
 Restart=on-failure
 RestartSec=3
 

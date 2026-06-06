@@ -15,7 +15,7 @@ fi
 SRC="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEST=/etc/systemd/system
 
-for unit in flm.service open-webui.service flm-stack.target; do
+for unit in flm.service flm-filter.service open-webui.service flm-stack.target; do
   install -m 0644 "$SRC/$unit" "$DEST/$unit"
   echo "  -> $DEST/$unit"
 done

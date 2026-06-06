@@ -1,0 +1,22 @@
+[Unit]
+Description=FLM model-filter proxy (allowlist) — cegah auto-download model lain
+# FLM (flm.service) di localhost:52624; proxy ini di :52625 (posisi lama FLM),
+# jadi Open WebUI tak perlu diubah. Hanya model di FLM_ALLOWED_MODELS yang lolos.
+After=flm.service
+Wants=flm.service
+PartOf=flm-stack.target
+
+[Service]
+Type=simple
+User=hendri
+Group=hendri
+Environment=FLM_ALLOWED_MODELS=qwen3.5:2b
+Environment=FLM_UPSTREAM_PORT=52624
+Environment=FLM_PROXY_PORT=52625
+Environment=FLM_PROXY_HOST=0.0.0.0
+ExecStart=/usr/bin/python3 /home/hendri/my-projects/llms/scripts/flm-model-filter.py
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

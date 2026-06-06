@@ -3,3 +3,6 @@
 
 # Log / runtime
 *.log
+
+# editor lock files
+.~lock.*#
