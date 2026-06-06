@@ -29,10 +29,19 @@ if ! command -v xrt-smi >/dev/null 2>&1; then
   exit 1
 fi
 
+# Cari node sysfs amdgpu (iGPU) untuk pembanding: gpu_busy_percent = %-utilisasi
+# GPU SEJATI (beda dgn NPU yg tak punya counter ini). Kalau LLM benar di NPU,
+# angka GPU ini tetap rendah saat inferensi.
+GPU_BUSY=""
+for c in /sys/class/drm/card*/device/gpu_busy_percent; do
+  [ -r "$c" ] && { GPU_BUSY="$c"; break; }
+done
+
 read_submissions() {
   xrt-smi examine -r aie-partitions --batch 2>/dev/null \
     | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { gsub(/[[:space:]]/,"",$4); s+=$4 } END { print s+0 }'
 }
+read_gpu() { [ -n "$GPU_BUSY" ] && cat "$GPU_BUSY" 2>/dev/null || echo "N/A"; }
 read_contexts() {
   xrt-smi examine -r aie-partitions --batch 2>/dev/null \
     | awk -F'|' '$2 ~ /^[[:space:]]*[0-9]+[[:space:]]*$/ { c++ } END { print c+0 }'
@@ -46,6 +55,7 @@ while true; do
   sleep "$INTERVAL"
   cur="$(read_submissions)"
   ctx="$(read_contexts)"
+  gpu="$(read_gpu)"
   delta=$(( cur - prev ))
   prev="$cur"
 
@@ -70,5 +80,6 @@ while true; do
   printf '  submissions : %s/s   (total %s)\n' "$rate" "$cur"
   printf '  hw contexts : %s aktif\n' "$ctx"
   printf '  [%-50s] %s%%\n' "$bar" "$pct"
+  printf '\n  GPU (amdgpu): %s%%   <- pembanding; harus tetap RENDAH (LLM di NPU)\n' "$gpu"
   printf '\033[J'
 done
