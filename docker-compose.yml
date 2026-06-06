@@ -28,6 +28,12 @@ services:
       OPENAI_API_BASE_URL: "http://host.docker.internal:52625/v1"
       OPENAI_API_KEY: "dummy"          # FLM tidak memeriksa key
       WEBUI_AUTH: "true"               # set "false" untuk skip login (single-user)
+      # Batasi model yang tampil hanya yang sudah di-download (cegah salah-pilih
+      # model ⏬ yang memicu auto-download FLM). "0" = indeks koneksi OpenAI ke-0.
+      # CATATAN: ini PersistentConfig -> hanya berlaku saat init DB PERTAMA. Untuk
+      # instance yang sudah jalan, atur lewat UI (Admin > Settings > Connections >
+      # Model IDs). Untuk reset ke env: hapus volume open-webui lalu up lagi.
+      OPENAI_API_CONFIGS: '{"0":{"enable":true,"model_ids":["gemma4-it:e4b","qwen3.5:2b"]}}'
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
