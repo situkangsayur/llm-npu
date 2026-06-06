@@ -8,6 +8,8 @@ PartOf=flm-stack.target
 [Service]
 Type=oneshot
 RemainAfterExit=yes
+# Pull image pertama kali bisa lama (image Open WebUI besar) — jangan di-timeout.
+TimeoutStartSec=0
 WorkingDirectory=/home/hendri/my-projects/llms
 ExecStart=/usr/bin/docker compose up -d
 ExecStop=/usr/bin/docker compose down
